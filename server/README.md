@@ -20,7 +20,7 @@ Then point the site at it, either:
 - in Rallyon → Settings → Shared server (this browser only), or
 - by adding `?server=https://squeek-orbit.<you>.workers.dev` to any link.
 
-Set `ALLOWED_ORIGINS` in `wrangler.toml` to the site's origin (for example `https://kadaferhidup.github.io`). Reads are open to everyone; writes from other origins are refused.
+Set `ALLOWED_ORIGINS` in `wrangler.toml` to the site's origins (for example `https://orbit.kadaferhidup.my.id`). Reads are open to everyone; writes from other origins are refused.
 
 Check it: `curl https://squeek-orbit.<you>.workers.dev/v1/health`
 

@@ -13,4 +13,4 @@ database_id = "663f060e-eab5-4ca1-a64d-68cda6aef122"
 
 [vars]
 # Comma-separated origins allowed to write (runs, cheers, votes). Reads are open to everyone.
-ALLOWED_ORIGINS = "https://kadaferhidup.github.io,http://localhost:8000"
+ALLOWED_ORIGINS = "https://orbit.kadaferhidup.my.id,https://kadaferhidup.github.io,http://localhost:8000"

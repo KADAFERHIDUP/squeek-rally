@@ -2,6 +2,8 @@
 
 **Eight planets orbiting the WHEELY9000, all powered by Squeekchain's real hamster.**
 
+Live: **https://orbit.kadaferhidup.my.id**
+
 Squeektoshi runs on the WHEELY9000 and mines Squeek blocks on Squeekchain. Squeek Orbit is a single site shaped like a solar system: the sun is the wheel, spinning at Squeektoshi's live rpm, and each of the eight planets is one kind of Squeekchain build with its own mode. When the hamster runs, the whole system speeds up.
 
 | # | Planet | Category | What you can do |
