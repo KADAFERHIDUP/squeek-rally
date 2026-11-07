@@ -6,6 +6,13 @@
 (() => {
   const SR = window.SR;
   let el = null, ctx = null, timer = 0;
+  let shared = null, sharedAt = 0, sharedErr = '';
+  const net = () => SR.Net && SR.Net.enabled();
+  async function refreshShared() {
+    if (!net()) { shared = null; return; }
+    try { shared = await SR.Net.raid(); sharedErr = ''; } catch (e) { sharedErr = e.message; }
+    sharedAt = Date.now();
+  }
 
   const BOSSES = ['Pillow Golem', 'Crumb Kraken', 'Sleepy Sphinx', 'Duvet Dragon', 'Snooze Titan', 'Nap Hydra', 'Blanket Wyrm'];
   const PLACES = ['Crumb Canyon', 'Seedfall Ridge', 'the Bedding Wastes', 'Wheelwright Pass', 'the Sunflower Steppe', 'Cage Gate', 'the Shaving Dunes'];
@@ -43,14 +50,17 @@
     const s = (r.round * 2654435761) >>> 0;
     const place = PLACES[s % PLACES.length], foe = FOES[(s >> 3) % FOES.length], n = 1 + (s % 5);
     const d = ctx.fmtM(r.distanceM);
+    const forged = r.blocks ? ` ${r.blocks === 1 ? `Squeek block #${r.lastBlock} was` : `${r.blocks} Squeek blocks (to #${r.lastBlock}) were`} forged from the work.` : '';
+    return line() + forged;
+    function line() {
     if (r.distanceM < 5) return `Squeektoshi slept through round #${r.round}. In ${place}, ${n} ${foe} crept closer to the wheel.`;
     if (r.distanceM < 150) return `Round #${r.round}: a careful ${d} jog through ${place}. ${n} ${foe} scattered at the sound of the wheel.`;
     if (r.distanceM < 400) return `Round #${r.round}: Squeektoshi ran ${d} across ${place} and drove off ${n * 2} ${foe}.`;
     return `Round #${r.round}: a legendary ${d} sprint! ${place} trembled and ${n * 4} ${foe} fled the realm.`;
+    }
   }
-  const sagaKey = 'squeek-orbit-saga';
-  const loadSaga = () => { try { return JSON.parse(localStorage.getItem(sagaKey) || '[]'); } catch { return []; } };
-  const saveSaga = s => { try { localStorage.setItem(sagaKey, JSON.stringify(s.slice(-80))); } catch { /* ignore */ } };
+  /** The saga is written from on-chain settlements only, so every visitor reads the same story. */
+  const sagaRounds = () => SR.Data.history().filter(r => r.source === 'chain').slice(-40);
 
   const BOT = `// Squeek Orbit raid bot: posts the daily boss fight to a Discord channel.
 // Run with Node 18+:  DISCORD_WEBHOOK=https://discord.com/api/webhooks/... node raid-bot.mjs
@@ -80,20 +90,30 @@ tick();`;
     const frac = left / b.hp;
     const p = ctx.profile;
     const cheers = p.raid.picks[b.day] || 0;
+    if (net() && Date.now() - sharedAt > 10000) refreshShared().then(renderCheers);
     el.querySelector('[data-r="name"]').textContent = b.name;
     el.querySelector('[data-r="hp"]').textContent = `${Math.round(left)} / ${b.hp} HP`;
     el.querySelector('[data-r="bar"]').style.width = `${frac * 100}%`;
     el.querySelector('[data-r="dmg"]').textContent = `${ctx.fmtM(today)} of damage today`;
     el.querySelector('[data-r="status"]').textContent = left <= 0 ? 'Defeated! A new boss arrives at 12:00 UTC.' : st.running ? 'Squeektoshi is attacking right now!' : 'Squeektoshi is resting. The boss regains its nerve…';
-    el.querySelector('[data-r="cheers"]').textContent = `${cheers} cheers today · ${p.raid.cheers} all time`;
+    if (!net()) el.querySelector('[data-r="cheers"]').textContent = `${cheers} cheers today from you · ${p.raid.cheers} all time`;
     drawBoss(el.querySelector('canvas'), b, frac);
+  }
+
+  function renderCheers() {
+    const box = el && el.querySelector('[data-r="crowd"]');
+    if (!box) return;
+    if (!net()) { box.innerHTML = `<p class="small muted">${SR.Net && SR.Net.configured() ? `Shared server unreachable${sharedErr ? ` (${ctx.esc(sharedErr)})` : ''}: cheers count on this device only.` : 'Cheers count on this device only. With the shared server (Rallyon → Settings) the whole crowd cheers together.'}</p>`; return; }
+    if (!shared) { box.innerHTML = '<p class="small muted">Loading the crowd…</p>'; return; }
+    el.querySelector('[data-r="cheers"]').textContent = `${shared.cheers} cheers today from ${shared.cheerers} players · ${shared.mine} yours`;
+    box.innerHTML = `<h3 style="margin-top:6px">Loudest fans today</h3><ul class="list">${shared.top.length ? shared.top.map((x, i) => `<li><span class="mono muted">${i + 1}</span><span>${ctx.esc(x.name)}</span><span class="pill hot">${x.count}</span></li>`).join('') : '<li class="empty">Nobody has cheered yet today.</li>'}</ul>`;
   }
 
   function renderSaga() {
     const list = el && el.querySelector('[data-r="saga"]');
     if (!list) return;
-    const saga = loadSaga().slice().reverse();
-    list.innerHTML = saga.length ? saga.map(x => `<li>${ctx.esc(x.text)}<small>${new Date(x.at).toLocaleString()}</small></li>`).join('') : '<li>The saga begins with the next full round you watch. Keep this page open.</li>';
+    const saga = sagaRounds().reverse();
+    list.innerHTML = saga.length ? saga.map(r => `<li>${ctx.esc(sagaLine(r))}<small>${r.at ? new Date(r.at).toLocaleString() : ''}${r.tx ? ` · <a href="https://sepolia.etherscan.io/tx/${ctx.esc(r.tx)}" target="_blank" rel="noopener" class="mono">${ctx.esc(r.tx.slice(0, 10))}…</a>` : ''}</small></li>`).join('') : '<li>The saga is loading from Squeekchain\'s round settlements…</li>';
   }
 
   SR.App.register('raid', {
@@ -114,10 +134,11 @@ tick();`;
             </div>
             <p class="small muted">Every metre Squeektoshi runs today (12:00 to 12:00 UTC, from the API's daily counter) is damage. Everyone on Squeekchain fights the same boss.</p>
             <div class="row"><button type="button" class="btn primary" data-act="cheer">📣 Cheer the hamster</button><span class="small muted" data-r="cheers"></span></div>
+            <div data-r="crowd"></div>
           </section>
           <section class="card">
             <h3>The Wheel Saga <span class="tag">every round</span></h3>
-            <p class="small muted">Each full 10-minute round you watch writes the next line of the story, from that round's real distance.</p>
+            <p class="small muted">Every 10-minute round settled on Sepolia writes the next line, from that round's real distance and the blocks it forged. It is the same story for everyone, and it keeps going while you are away.</p>
             <ul class="saga" data-r="saga"></ul>
           </section>
         </div>
@@ -134,6 +155,11 @@ tick();`;
         if (!a) return;
         if (a.dataset.act === 'cheer') {
           const st = SR.Data.state.status, day = boss().day;
+          if (net()) {
+            SR.Net.cheer(ctx.nickname()).then(j => { shared = j; sharedAt = Date.now(); ctx.profile.raid.cheers++; ctx.saveProfile(); ctx.toast('📣 The crowd roars! Squeektoshi heard you.', 'win'); renderCheers(); })
+              .catch(err => ctx.toast(err.message));
+            return;
+          }
           if (!st.running) { ctx.toast('Cheers only land while Squeektoshi is running.'); return; }
           const now = Date.now();
           if (now - (ctx.profile.raid.lastCheer || 0) < 20000) { ctx.toast('Catch your breath: one cheer every 20 seconds.'); return; }
@@ -148,25 +174,12 @@ tick();`;
           navigator.clipboard.writeText(BOT).then(() => ctx.toast('Bot code copied'), () => ctx.toast('Copy blocked: select the code and copy it manually.'));
         }
       });
-      render(); renderSaga();
+      render(); renderSaga(); renderCheers();
+      refreshShared().then(renderCheers);
       timer = setInterval(render, 1000);
     },
     unmount() { clearInterval(timer); el = null; },
-    onRound(r) {
-      if (!r.complete) return;
-      if (!ctx) ctx = SR.App.ctx;
-      const saga = loadSaga();
-      if (saga.some(x => x.round === r.round)) return;
-      saga.push({ round: r.round, text: sagaLine(r), at: Date.now() });
-      saveSaga(saga);
-      renderSaga();
-    },
-    onBlock(b) {
-      if (!ctx) ctx = SR.App.ctx;
-      const saga = loadSaga();
-      saga.push({ round: null, text: `Squeek block #${b.height} was forged from the hamster's work. The realm grows stronger.`, at: Date.now() });
-      saveSaga(saga);
-      renderSaga();
-    },
+    onRound() { if (el) renderSaga(); },
+    onSettlements() { if (el) renderSaga(); },
   });
 })();

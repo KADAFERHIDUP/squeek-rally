@@ -1,0 +1,16 @@
+name = "squeek-orbit"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+# Records every on-chain round settlement so results survive the API's 10-item window.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "squeek-orbit"
+database_id = "PASTE-THE-ID-FROM-wrangler-d1-create"
+
+[vars]
+# Comma-separated origins allowed to write (runs, cheers, votes). Reads are open to everyone.
+ALLOWED_ORIGINS = "https://kadaferhidup.github.io,http://localhost:8000"

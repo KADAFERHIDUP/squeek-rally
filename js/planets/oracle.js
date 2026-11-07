@@ -11,7 +11,7 @@
   // ---------------------------------------------------------------- the model
   function forecast() {
     const c = ctx || SR.App.ctx;
-    const rounds = SR.Data.state.rounds.slice(-120);
+    const rounds = SR.Data.history().slice(-120);
     const bands = rounds.map(r => c.bandOf(r.distanceM));
     // transition counts with Laplace smoothing
     const T = Array.from({ length: 4 }, () => [1, 1, 1, 1]);
@@ -48,7 +48,7 @@
       <span class="mono small" style="width:40px;text-align:right">${(f.probs[i] * 100).toFixed(0)}%</span></div>`).join('');
     el.querySelector('[data-o="aipick"]').textContent = mine ? c.BAND_NAMES[mine.ai] : c.BAND_NAMES[f.pick];
     el.querySelector('[data-o="why"]').textContent = f.samples
-      ? `Learned from ${f.samples} rounds watched on this device${f.last !== null ? `; the last one was a ${c.BAND_NAMES[f.last].toLowerCase()}` : ''}, and the wheel is ${SR.Data.state.status.running ? 'turning' : 'still'} right now.`
+      ? `Learned from ${f.samples} settled rounds${f.last !== null ? `; the last one was a ${c.BAND_NAMES[f.last].toLowerCase()}` : ''}, and the wheel is ${SR.Data.state.status.running ? 'turning' : 'still'} right now.`
       : `No rounds watched yet, so it leans on what the wheel is doing right now (${SR.Data.state.status.running ? 'turning' : 'still'}).`;
     el.querySelector('[data-o="choices"]').innerHTML = c.BAND_NAMES.map((n, i) =>
       `<button type="button" class="choice" data-pick="${i}" aria-pressed="${mine && mine.you === i}" ${mine ? 'disabled' : ''}><b>${n}</b><small>${c.bandRange(i)}</small></button>`).join('');
@@ -152,12 +152,12 @@
     unmount() { clearInterval(timer); el = null; },
     onStatus(st) { addStroke(st); if (el) drawPaint(); },
     onBlock() { paint.strokes.push({ k: 'block', a: Math.random() * Math.PI * 2, r: 0.2 + Math.random() * 0.7 }); savePaint(paint); if (el) drawPaint(); },
-    onRound(r) {
+    onSettle(r) {
       const c = ctx || SR.App.ctx, p = c.profile;
       const pick = p.oracle.picks[r.round];
       if (!pick) return;
       delete p.oracle.picks[r.round];
-      if (!r.complete) { c.saveProfile(); return; }
+      if (!r.complete) { c.saveProfile(); c.toast(`Oracle duel #${r.round} voided: ${c.why(r)}.`); return; }
       const actual = c.bandOf(r.distanceM);
       if (pick.you === actual) p.oracle.you++;
       if (pick.ai === actual) p.oracle.ai++;

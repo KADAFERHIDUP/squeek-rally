@@ -3,7 +3,7 @@
 'use strict';
 (() => {
   const SR = window.SR;
-  let root = null, game = null, ctx = null, view = 'main', noticeTimer = 0;
+  let root = null, game = null, ctx = null, view = 'main', noticeTimer = 0, boardTab = 'all';
 
   const UNLOCKS = {
     classic:  { need: () => true, text: 'Always unlocked' },
@@ -101,13 +101,15 @@
       const b = ctx.bands();
       const chosen = p.calls[next];
       const hist = Object.entries(p.calls).filter(([r]) => Number(r) > next).length;
-      const rounds = SR.Data.state.rounds.slice(-6).reverse();
+      const rounds = SR.Data.history().slice(-6).reverse();
+      const pend = Object.keys(p.calls).map(Number).filter(r => r < next).sort((a, b) => b - a);
       m.innerHTML = `<div class="panel">
         <div class="head"><h3>Call round #${next}</h3><span class="pill">${ctx.fmtClock(SR.Data.secondsLeft())} to start</span></div>
         <p class="sub">How far will Squeektoshi run in the next 10-minute round? A correct call doubles your score multiplier for the next run (up to ×4). Calls lock as soon as you pick.</p>
         <div class="choices">${ctx.BAND_NAMES.map((n, i) => `<button type="button" class="choice" data-band="${i}" aria-pressed="${chosen === i}" ${chosen !== undefined ? 'disabled' : ''}><b>${n}</b><small>${ctx.bandRange(i, b.edges)}</small></button>`).join('')}</div>
-        <p class="note">${b.learned ? `Bands learned from ${b.learned} rounds this device watched.` : 'Default bands until this device has watched 6 full rounds.'} The round is measured from the wheel's own work counter (one turn ≈ 0.88 m), so keep this page open through the round.${hist ? '' : ''}</p>
-        <ul class="list">${rounds.length ? rounds.map(r => `<li><span class="mono muted">#${r.round}</span><span>${ctx.fmtM(r.distanceM)} · ${ctx.BAND_NAMES[ctx.bandOf(r.distanceM)]}</span><span class="pill">${r.work} turns</span></li>`).join('') : '<li class="empty">No complete rounds watched yet.</li>'}</ul>
+        <p class="note">${b.learned ? `Bands learned from ${b.learned} settled rounds.` : 'Default bands until 6 rounds have settled.'} Calls are settled from the round's on-chain settlement on Sepolia (work added × 0.88 m), so you can close the tab: the result is waiting when you come back.${hist ? '' : ''}</p>
+        ${pend.length ? `<p class="small">Waiting for settlement: ${pend.map(r => `<span class="pill">#${r} · ${ctx.BAND_NAMES[p.calls[r]]}</span>`).join(' ')}</p>` : ''}
+        <ul class="list">${rounds.length ? rounds.map(r => `<li><span class="mono muted">#${r.round}</span><span>${ctx.fmtM(r.distanceM)} · ${ctx.BAND_NAMES[ctx.bandOf(r.distanceM)]}</span><span class="pill ${r.source === 'chain' ? 'ok' : ''}" title="${r.tx ? ctx.esc(r.tx) : ''}">${r.source === 'chain' ? 'on-chain' : 'measured'} · ${r.work} turns</span></li>`).join('') : '<li class="empty">No settled rounds yet.</li>'}</ul>
         <button type="button" class="btn" data-act="main">← Back</button>
       </div>`;
     } else if (v === 'garage') {
@@ -121,10 +123,15 @@
         <button type="button" class="btn" data-act="main">← Back</button>
       </div>`;
     } else if (v === 'board') {
+      const net = SR.Net && SR.Net.enabled();
+      const tab = net ? boardTab : 'device';
       const runs = [...p.runs].sort((a, b) => b.score - a.score).slice(0, 10);
       m.innerHTML = `<div class="panel">
-        <div class="head"><h3>Leaderboard</h3><span class="pill">This device</span></div>
-        <ul class="list">${runs.length ? runs.map((r, i) => `<li><span class="mono muted">${i + 1}</span><span><b>${r.score.toLocaleString('en-US')}</b> · ${ctx.fmtM(r.distanceM)} · ${r.seeds} seeds${r.gems ? ` · ${r.gems} crystals` : ''}</span><span class="pill">${new Date(r.at).toLocaleDateString()}</span></li>`).join('') : '<li class="empty">No runs yet. Go play!</li>'}</ul>
+        <div class="head"><h3>Leaderboard</h3><span class="pill">${tab === 'device' ? 'This device' : tab === 'week' ? 'Everyone · 7 days' : 'Everyone · all time'}</span></div>
+        <div class="board-tabs">${[['device', 'This device'], ['all', 'Global'], ['week', 'This week']].map(([k, n]) => `<button type="button" class="btn ${tab === k ? 'primary' : ''}" data-board="${k}" ${k !== 'device' && !net ? 'disabled' : ''}>${n}</button>`).join('')}</div>
+        ${tab === 'device' ? `<ul class="list">${runs.length ? runs.map((r, i) => `<li><span class="mono muted">${i + 1}</span><span><b>${r.score.toLocaleString('en-US')}</b> · ${ctx.fmtM(r.distanceM)} · ${r.seeds} seeds${r.gems ? ` · ${r.gems} crystals` : ''}</span><span class="pill">${new Date(r.at).toLocaleDateString()}</span></li>`).join('') : '<li class="empty">No runs yet. Go play!</li>'}</ul>`
+          : '<ul class="list" data-global><li class="empty">Loading the global board…</li></ul>'}
+        ${net ? `<p class="small muted">You appear as <b>${ctx.esc(ctx.nickname())}</b>. Change it in Settings.</p>` : '<p class="small muted">Global boards need the shared server. Add one in Settings.</p>'}
         <div class="grid3">
           <div class="stat"><span class="k">Seeds</span><span class="v">${p.totalSeeds}</span></div>
           <div class="stat"><span class="k">SQK coins</span><span class="v">${p.totalCoins}</span></div>
@@ -132,6 +139,14 @@
         </div>
         <button type="button" class="btn" data-act="main">← Back</button>
       </div>`;
+      if (tab !== 'device') {
+        SR.Net.leaderboard(tab).then(j => {
+          const ul = m.querySelector('[data-global]');
+          if (!ul) return;
+          const nick = ctx.nickname();
+          ul.innerHTML = j.top.length ? j.top.map(r => `<li style="${r.name === nick ? 'outline:1px solid var(--pc)' : ''}"><span class="mono muted">${r.rank}</span><span><b>${ctx.esc(r.name)}</b> · ${r.score.toLocaleString('en-US')} · ${ctx.fmtM(r.distanceM)}</span><span class="pill">${ctx.esc(SR.SKINS[r.skin] ? SR.SKINS[r.skin].name : r.skin)}</span></li>`).join('') + `<li class="empty">${j.players} players · ${j.runs} runs</li>` : '<li class="empty">No runs on the server yet. Be the first!</li>';
+        }).catch(e => { const ul = m.querySelector('[data-global]'); if (ul) ul.innerHTML = `<li class="empty">Could not reach the server: ${ctx.esc(e.message)}</li>`; });
+      }
     } else if (v === 'how') {
       m.innerHTML = `<div class="panel">
         <div class="head"><h3>How to play</h3></div>
@@ -152,9 +167,21 @@
         <label class="toggle"><span>Camera shake</span><input type="checkbox" data-set="shake" ${s.shake ? 'checked' : ''}></label>
         <label class="toggle"><span>Graphics quality</span>
           <select class="input" style="width:auto" data-set="quality">${['high', 'medium', 'low'].map(q => `<option value="${q}" ${s.quality === q ? 'selected' : ''}>${q}</option>`).join('')}</select></label>
+        <label class="toggle"><span>Nickname on shared boards</span>
+          <input class="input" style="width:170px" data-nick maxlength="20" value="${ctx.esc(ctx.nickname())}" aria-label="Nickname"></label>
+        <div class="toggle" style="display:grid;gap:6px;justify-items:stretch">
+          <span><span class="srv-dot ${SR.Net.status}"></span>Shared server <small class="muted">(${SR.Net.status === 'ok' ? 'connected' : SR.Net.status === 'down' ? 'unreachable' : SR.Net.status === 'off' ? 'not set: everything stays on this device' : 'checking…'})</small></span>
+          <div class="row"><input class="input" style="flex:1" data-srv placeholder="https://squeek-orbit.you.workers.dev" value="${ctx.esc(SR.Net.base)}" spellcheck="false"><button type="button" class="btn" data-act="srv-save">Save</button></div>
+          <small class="muted">Deploy your own from the <span class="mono">server/</span> folder (Cloudflare Workers + D1, free tier). It shares the leaderboard, raid cheers, audience polls and the round history.</small>
+        </div>
         <button type="button" class="btn" data-act="reset">Reset Rallyon progress</button>
         <button type="button" class="btn" data-act="main">← Back</button>
       </div>`;
+      m.querySelector('[data-nick]').addEventListener('change', e => {
+        const n = e.target.value.trim().replace(/\s+/g, ' ');
+        if (!/^[A-Za-z0-9 _.\-]{3,20}$/.test(n)) { ctx.toast('Nicknames are 3–20 letters, numbers, spaces, _ . or -'); e.target.value = ctx.nickname(); return; }
+        ctx.profile.nickname = n; ctx.saveProfile(); ctx.toast(`You are now ${n}`);
+      });
       m.querySelectorAll('[data-set]').forEach(el => el.addEventListener('change', () => {
         const k = el.dataset.set;
         s[k] = el.type === 'checkbox' ? el.checked : el.value;
@@ -181,6 +208,11 @@
     p.runs.push({ ...r, at: Date.now() });
     p.runs = p.runs.sort((a, b) => b.score - a.score).slice(0, 25);
     ctx.saveProfile();
+    if (SR.Net && SR.Net.enabled() && r.score > 0) {
+      SR.Net.submitRun({ score: r.score, distanceM: r.distanceM, seeds: r.seeds, coins: r.coins, gems: r.gems, durationS: r.durationS, multiplier: r.multiplier, skin: p.skin }, ctx.nickname())
+        .then(j => { const chip = root.querySelector('[data-rank]'); if (chip) chip.textContent = `Global rank #${j.rank}`; })
+        .catch(e => { const chip = root.querySelector('[data-rank]'); if (chip) chip.textContent = `Not on the global board: ${e.message}`; });
+    }
     setPlaying(false);
     view = 'over';
     $h('menu').innerHTML = `<div class="panel">
@@ -191,6 +223,7 @@
         <div class="stat"><span class="k">Seeds</span><span class="v">${r.seeds}</span></div>
         <div class="stat"><span class="k">Crystals</span><span class="v">${r.gems}</span></div>
       </div>
+      ${SR.Net && SR.Net.enabled() ? '<p class="small" data-rank>Sending to the global board…</p>' : ''}
       <p class="small muted">Best ${p.best.toLocaleString('en-US')}${r.multiplier > 1 ? ` · this run used a ×${r.multiplier} call boost` : ''}. ${callChip()}.</p>
       <div class="menu-grid">
         <button type="button" class="btn primary" data-act="play">↻ Play again</button>
@@ -225,6 +258,8 @@
       show('call');
       return;
     }
+    const bt = e.target.closest('[data-board]');
+    if (bt && !bt.disabled) { boardTab = bt.dataset.board; show('board'); return; }
     if (skin && !skin.disabled) { ctx.profile.skin = skin.dataset.skin; ctx.saveProfile(); game.setSkin(skin.dataset.skin); show('garage'); return; }
     if (!a) return;
     const act = a.dataset.act;
@@ -233,6 +268,12 @@
     else if (act === 'resume') { game.resume(); view = 'play'; setPlaying(true); }
     else if (act === 'quit') { game.toMenu(); show('main'); }
     else if (act === 'orbit') document.getElementById('back').click();
+    else if (act === 'srv-save') {
+      const v = root.querySelector('[data-srv]').value;
+      if (!SR.Net.setBase(v)) { ctx.toast('Use an https:// address (or http://localhost for testing).'); return; }
+      ctx.toast(v ? 'Server saved. Checking…' : 'Shared server removed');
+      setTimeout(() => { if (view === 'settings') show('settings'); }, 1500);
+    }
     else if (act === 'reset') {
       Object.assign(ctx.profile, { runs: [], best: 0, totalSeeds: 0, totalCoins: 0, totalGems: 0, boost: 1, skin: 'classic' });
       ctx.saveProfile(); game.setSkin('classic'); ctx.toast('Rallyon progress reset'); show('settings');
@@ -246,14 +287,14 @@
     game.noShake = !s.shake;
   }
 
-  // round results settle calls even when this planet is closed
-  function onRound(r) {
+  // settled rounds close calls even when this planet (or the whole tab) was closed during the round
+  function onSettle(r) {
     const c = window.SR.App.ctx;
     const p = c.profile;
     if (p.calls[r.round] === undefined) return;
     const call = p.calls[r.round];
     delete p.calls[r.round];
-    if (!r.complete) { c.saveProfile(); c.toast(`Round #${r.round}: not fully watched, call refunded.`); return; }
+    if (!r.complete) { c.saveProfile(); c.toast(`Round #${r.round}: ${c.why(r)}, call refunded.`); return; }
     p.totalCalls++;
     const win = c.bandOf(r.distanceM) === call;
     if (win) { p.correctCalls++; p.boost = Math.min(4, (p.boost || 1) * 2); }
@@ -277,7 +318,7 @@
     unmount() { if (game) { if (game.mode === 'play') game.pause(); if (view === 'play') view = 'pause'; game.active = false; } },
     onStatus(st) { if (game) game.setWheel(st.running, st.rpm); },
     onBlock(b) { if (game) game.blockMined(b.height); },
-    onRound,
+    onSettle,
     captureEscape() {
       if (view === 'play') { game.pause(); show('pause'); return true; }
       if (view !== 'main' && view !== 'over') { show('main'); return true; }

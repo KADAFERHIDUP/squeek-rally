@@ -150,7 +150,7 @@ window.SR = window.SR || {};
       this.mode = 'over';
       this.#emit('over', {
         score: Math.round(this.stats.score), seeds: this.stats.seeds, coins: this.stats.coins, gems: this.stats.gems,
-        distanceM: Math.round(this.p.s), multiplier: this.mult,
+        distanceM: Math.round(this.p.s), multiplier: this.mult, durationS: Math.max(1, Math.round(this.runTime || 0)),
       });
     }
 

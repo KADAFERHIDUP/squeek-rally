@@ -6,6 +6,12 @@
  *   /economy/state      asset.decimals, supply.{liveSupplyBaseUnits, capBaseUnits}, staking.totalStakedBaseUnits, nft.live, lifecycle.{currentRound, stage}
  *   /events             recent on-chain activity (settlements, claims, stakes, merges)
  *   /measurement/stats  7-day wheel statistics
+ *   /settlements        recentSettlements[] {previousSettledThroughRound, settledThroughRound, activeRoundCount, workAdded,
+ *                       transactionHash, blockTimestamp, confirmationStatus}: the on-chain record of each round's work.
+ *
+ * Round calls, duels and market bets are settled from /settlements, so a player can close the tab and still get
+ * the result when they come back. The page's own measurement of the work counter is only a fallback for when the
+ * settlement feed cannot be reached.
  *
  * Rounds last 600 s from genesis 1793735400 (docs.squeekchain.com): round = floor((t - genesis) / 600) + 1.
  * One work unit is one turn of the wheel, about 0.88 m.
@@ -67,6 +73,8 @@ window.SR = window.SR || {};
     stats: null,
     rounds: [],                 // measured rounds { round, work, distanceM, complete }
     sample: null,               // { round, startWork, startAt, firstSeenSec }
+    chain: { rounds: {}, through: null, oldest: null, fails: 0, lastOk: 0, summary: null, recent: [] },
+    lastEmitted: null,          // highest round already announced with the 'round' event (persisted)
     raw: {},
   };
 
@@ -75,6 +83,21 @@ window.SR = window.SR || {};
     if (Array.isArray(saved)) state.rounds = saved.slice(-200);
   } catch { /* no storage */ }
   const saveRounds = () => { try { localStorage.setItem('squeek-rally-rounds', JSON.stringify(state.rounds.slice(-200))); } catch { /* ignore */ } };
+  const CHAIN_KEY = 'squeek-orbit-chain-rounds', LAST_KEY = 'squeek-orbit-last-round';
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHAIN_KEY) || '{}');
+    if (saved && typeof saved === 'object') state.chain.rounds = saved;
+    const last = Number(localStorage.getItem(LAST_KEY));
+    if (Number.isFinite(last) && last > 0) state.lastEmitted = last;
+  } catch { /* no storage */ }
+  function saveChain() {
+    try {
+      const keys = Object.keys(state.chain.rounds).map(Number).sort((a, b) => a - b);
+      for (const k of keys.slice(0, Math.max(0, keys.length - 400))) delete state.chain.rounds[k];
+      localStorage.setItem(CHAIN_KEY, JSON.stringify(state.chain.rounds));
+      if (state.lastEmitted) localStorage.setItem(LAST_KEY, String(state.lastEmitted));
+    } catch { /* ignore */ }
+  }
 
   async function get(path) {
     const ctrl = new AbortController();
@@ -127,7 +150,29 @@ window.SR = window.SR || {};
       totalNftPower: (j.staking && j.staking.totalNftPower) ?? null,
       totalSqkPower: (j.staking && j.staking.totalSqkPower) ?? null,
       stakedRaw: (j.staking && j.staking.totalStakedBaseUnits) ?? null,
+      sqkPerPower: (j.staking && j.staking.sqkPerPower) ?? null,
+      referencePower: (j.staking && j.staking.referencePower) ?? null,
+      stakingPaused: Boolean(j.staking && j.staking.paused),
+      mergesOpen: pick(j.nft && j.nft.mergesOpen, j.capabilities && j.capabilities.collection && j.capabilities.collection.mergesOpen, null),
+      maxLevel: num(j.nft && j.nft.maximumLevel) ?? 10,
+      contracts: contractsOf(j),
     };
+  }
+
+  /** Contract addresses as published by the API (components.<name>.address). Never hard-coded. */
+  function contractsOf(j) {
+    const c = j.components || {};
+    const addr = x => (x && typeof x.address === 'string' && /^0x[0-9a-fA-F]{40}$/.test(x.address)) ? x.address : null;
+    const out = {
+      core: addr(c.core), collection: addr(c.collection), token: addr(c.token), mining: addr(c.mining), staking: addr(c.staking),
+      dispenser: addr(c.dispenser),
+    };
+    // cross-check: the staking contract must point at the same collection, and mining must name the same staking contract
+    const dep = (c.staking && c.staking.dependencies) || {};
+    const same = (a, b) => !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
+    const capStaking = j.capabilities && j.capabilities.mining && j.capabilities.mining.staking;
+    out.consistent = !!(out.collection && out.staking && same(dep.collection, out.collection) && (!capStaking || same(capStaking, out.staking)));
+    return out;
   }
 
   // ------------------------------------------------------------ holder lookups (read-only)
@@ -200,6 +245,91 @@ window.SR = window.SR || {};
     };
   }
 
+  // ------------------------------------------------------------ on-chain settlements
+  /** Turn /settlements into per-round results. A settlement covers rounds (previousSettledThroughRound, settledThroughRound].
+   *  One round in the range: exact. Zero work in the range: every round in it was 0. Otherwise the split between rounds
+   *  is not published, so those rounds are marked unresolvable (calls on them are refunded, never guessed). */
+  function parseSettlements(j) {
+    const list = Array.isArray(j && j.recentSettlements) ? j.recentSettlements : [];
+    const results = [];
+    let through = null, oldest = null;
+    for (const x of list) {
+      const prev = num(x.previousSettledThroughRound), thr = num(x.settledThroughRound), work = num(x.workAdded);
+      if (prev === null || thr === null || thr <= prev || work === null) continue;
+      through = through === null ? thr : Math.max(through, thr);
+      oldest = oldest === null ? prev + 1 : Math.min(oldest, prev + 1);
+      const base = { source: 'chain', tx: x.transactionHash || null, at: x.blockTimestamp ? Date.parse(x.blockTimestamp) || null : null, confirmation: x.confirmationStatus || null };
+      const blocks = num(x.completedBlockCount) || 0, lastBlock = num(x.lastCompletedBlock);
+      if (thr - prev === 1) results.push({ ...base, round: thr, work, distanceM: Math.round(work * METRES_PER_WORK), complete: true, blocks, lastBlock });
+      else if (work === 0) for (let r = prev + 1; r <= thr && r - prev <= 500; r++) results.push({ ...base, round: r, work: 0, distanceM: 0, complete: true });
+      else for (let r = prev + 1; r <= thr && r - prev <= 500; r++) results.push({ ...base, round: r, work: null, distanceM: null, complete: false, reason: 'shared settlement' });
+    }
+    return { results: results.sort((a, b) => a.round - b.round), through, oldest, summary: j && j.summary ? j.summary : null };
+  }
+
+  let pendingProvider = () => [];
+  /** Record results, announce new rounds once ('round'), and offer every known result for settling ('settle'). */
+  function ingest(results) {
+    if (!results.length) return;
+    const known = state.chain.rounds;
+    for (const r of results) {
+      const had = known[r.round];
+      if (!had || (had.source !== 'chain' && r.source === 'chain') || (!had.complete && r.complete)) known[r.round] = r;
+    }
+    const sorted = results.map(r => known[r.round]).sort((a, b) => a.round - b.round);
+    const top = sorted[sorted.length - 1].round;
+    if (state.lastEmitted === null) state.lastEmitted = top - 1;  // first visit: announce only the latest round
+    const fresh = sorted.filter(r => r.round > state.lastEmitted);
+    if (fresh.length) state.lastEmitted = fresh[fresh.length - 1].round;
+    fresh.slice(-12).forEach(r => emit('round', r));   // a long idle stretch is announced as its last 12 rounds
+    saveChain();
+    settlePending();
+  }
+
+  /** Offer results for every round something on this device is waiting on. Rounds that fell out of the
+   *  settlement window (and are not in the shared server's history) are voided so stakes come back. */
+  let fetchingHistory = false;
+  async function settlePending() {
+    const pending = [...new Set((pendingProvider() || []).map(Number).filter(Number.isFinite))];
+    const thr = state.chain.through;
+    if (!pending.length || thr === null) return;
+    const missing = [];
+    for (const r of pending) {
+      if (r > thr) continue;
+      const res = state.chain.rounds[r];
+      if (res) emit('settle', res);
+      else missing.push(r);
+    }
+    if (!missing.length) return;
+    if (SR.Net && SR.Net.enabled() && !fetchingHistory) {
+      fetchingHistory = true;
+      try {
+        const got = await SR.Net.rounds(missing);
+        const add = got.map(x => ({ round: x.round, work: x.work, distanceM: x.work === null ? null : Math.round(x.work * METRES_PER_WORK), complete: x.work !== null, source: 'chain', tx: x.tx || null, at: x.at || null, reason: x.work === null ? 'shared settlement' : undefined }));
+        if (add.length) { for (const a of add) state.chain.rounds[a.round] = a; saveChain(); add.forEach(a => emit('settle', a)); }
+        const have = new Set(add.map(a => a.round));
+        missing.splice(0, missing.length, ...missing.filter(r => !have.has(r)));
+      } catch { /* server unavailable: fall through */ }
+      fetchingHistory = false;
+    }
+    for (const r of missing) if (state.chain.oldest !== null && r < state.chain.oldest) emit('settle', { round: r, complete: false, source: 'expired', reason: 'outside the settlement window' });
+  }
+
+  /** Load the shared server's long round history (no announcements: these rounds are in the past). */
+  async function seedHistory() {
+    if (!SR.Net || !SR.Net.enabled()) return;
+    try {
+      const list = await SR.Net.history(300);
+      let added = 0;
+      for (const x of list) {
+        if (state.chain.rounds[x.round] || x.work === null || x.work === undefined) continue;
+        state.chain.rounds[x.round] = { round: x.round, work: x.work, distanceM: Math.round(x.work * METRES_PER_WORK), complete: true, source: 'chain', tx: x.tx || null, at: x.at || null };
+        added++;
+      }
+      if (added) { saveChain(); emit('settlements', state.chain); settlePending(); }
+    } catch { /* server optional */ }
+  }
+
   // ------------------------------------------------------------ round measurement
   function trackRound(st, nowSec) {
     if (st.cumWork === null) return;
@@ -212,9 +342,17 @@ window.SR = window.SR || {};
     if (r !== s.round) {
       const work = Math.max(0, st.cumWork - s.startWork);
       const complete = s.firstSeenSec - roundStart(s.round) <= 30 && r === s.round + 1;
-      const result = { round: s.round, work, distanceM: Math.round(work * METRES_PER_WORK), complete };
+      const result = { round: s.round, work, distanceM: Math.round(work * METRES_PER_WORK), complete, source: 'measured', reason: complete ? undefined : 'not watched from the start' };
       if (complete) { state.rounds.push(result); saveRounds(); }
-      emit('round', result);
+      emit('measured', result);
+      if (state.mode === 'demo') ingestDemo(result);
+      else if (complete) {
+        // fallback only: if the settlement feed has not produced this round within 3 minutes, use the measurement
+        setTimeout(() => {
+          const healthy = Date.now() - state.chain.lastOk < 120000;
+          if (!state.chain.rounds[result.round] && (!healthy || state.chain.through === null)) ingest([result]);
+        }, 180000);
+      }
       state.sample = { round: r, startWork: st.cumWork, firstSeenSec: nowSec };
     }
   }
@@ -255,6 +393,21 @@ window.SR = window.SR || {};
     if (state.mode === 'demo') return;
     try { const j = await get('/events?category=all&limit=10'); state.raw.events = j; state.events = parseEvents(j); emit('events', state.events); } catch { /* keep last */ }
   }
+  async function pollSettlements() {
+    if (state.mode === 'demo') return;
+    try {
+      const j = await get('/settlements?range=24h');
+      state.raw.settlements = j;
+      const p = parseSettlements(j);
+      state.chain.fails = 0; state.chain.lastOk = Date.now();
+      if (p.through !== null) state.chain.through = Math.max(state.chain.through || 0, p.through);
+      if (p.oldest !== null) state.chain.oldest = p.oldest;
+      state.chain.summary = p.summary;
+      state.chain.recent = p.results.slice(-12);
+      ingest(p.results);
+      emit('settlements', state.chain);
+    } catch { state.chain.fails++; }
+  }
   async function pollStats() {
     if (state.mode === 'demo') return;
     try { const j = await get('/measurement/stats?range=7d'); state.raw.stats = j; state.stats = parseStats(j); emit('stats', state.stats); } catch { /* keep last */ }
@@ -265,7 +418,7 @@ window.SR = window.SR || {};
   function startDemo() {
     state.mode = 'demo';
     emit('mode', 'demo');
-    state.economy = { symbol: 'SQK', decimals: 18, live: '219,410,000', cap: '2,100,000,000', liveRatio: 0.1045, staked: '8,420,000', nftLive: 2481, currentRound: roundAt(Date.now() / 1000), stage: 'demo', paused: false, chainId: 11155111, totalNftPower: '2731400', totalSqkPower: '1840000', stakedRaw: null };
+    state.economy = { symbol: 'SQK', decimals: 18, live: '219,410,000', cap: '2,100,000,000', liveRatio: 0.1045, staked: '8,420,000', nftLive: 2481, currentRound: roundAt(Date.now() / 1000), stage: 'demo', paused: false, chainId: 11155111, totalNftPower: '2731400000000000000000000', totalSqkPower: '1840000000000000000000000', stakedRaw: null, sqkPerPower: '40000000000000000000', referencePower: '1000000000000000000000', stakingPaused: false, mergesOpen: true, maxLevel: 10, contracts: {} };
     state.stats = { distanceM: 18420, work: 20930, settlements: 1008, activeDays: 4 };
     state.events = [
       { type: 'settlement', at: Date.now() - 60000, tx: null, round: roundAt(Date.now() / 1000) - 1 },
@@ -275,6 +428,12 @@ window.SR = window.SR || {};
     emit('economy', state.economy); emit('stats', state.stats); emit('events', state.events);
     setInterval(demoTick, 1000);
     demoTick();
+  }
+  function ingestDemo(result) {
+    const r = { ...result, complete: true, source: 'chain', tx: null, at: Date.now(), work: result.work, distanceM: result.distanceM };
+    state.chain.through = r.round; state.chain.oldest = state.chain.oldest ?? r.round; state.chain.lastOk = Date.now();
+    ingest([r]);
+    emit('settlements', state.chain);
   }
   function demoTick() {
     demo.t++;
@@ -295,8 +454,9 @@ window.SR = window.SR || {};
   }
 
   function start() {
-    pollStatus().then(() => { pollEconomy(); pollEvents(); pollStats(); });
+    pollStatus().then(() => { pollEconomy(); pollEvents(); pollStats(); pollSettlements().then(seedHistory); });
     setInterval(pollStatus, 4000);
+    setInterval(pollSettlements, 45000);
     setInterval(pollEconomy, 30000);
     setInterval(pollEvents, 20000);
     setInterval(pollStats, 300000);
@@ -304,7 +464,15 @@ window.SR = window.SR || {};
 
   SR.Data = {
     API, GENESIS, ROUND_SECONDS, METRES_PER_WORK,
-    state, on, start, roundAt, roundStart, formatUnits,
+    state, on, start, roundAt, roundStart, formatUnits, ingest, settlePending, parseSettlements, contractsOf,
+    setPendingProvider: fn => { pendingProvider = fn; },
+    /** Every known round result, on-chain first, then this device's own measurements. */
+    history() {
+      const m = new Map();
+      for (const r of state.rounds) if (r.complete) m.set(r.round, r);
+      for (const r of Object.values(state.chain.rounds)) if (r.complete) m.set(r.round, r);
+      return [...m.values()].sort((a, b) => a.round - b.round);
+    },
     currentRound: () => roundAt(Date.now() / 1000),
     secondsLeft: () => { const now = Date.now() / 1000; return Math.max(0, roundStart(roundAt(now) + 1) - now); },
     parseStatus, parseEconomy, parseEvents, parseStats, parseSqueek, parseAccount, fetchSqueek, fetchAccount,

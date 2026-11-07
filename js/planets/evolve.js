@@ -26,8 +26,8 @@
     STAGES.forEach((s, i) => { if (today >= s.at) stage = i; });
     const hue = st.cumWork === null ? 30 : Math.round((st.cumWork / 40) % 360);
     const blocksToday = mem.day === dayKey() && mem.dayStartHeight != null && st.blockHeight != null ? Math.max(0, st.blockHeight - mem.dayStartHeight) : 0;
-    const rounds = SR.Data.state.rounds.length;
-    const sprints = SR.Data.state.rounds.filter(r => r.distanceM >= 400).length;
+    const rounds = SR.Data.history().length;
+    const sprints = SR.Data.history().filter(r => r.distanceM >= 400).length;
     return {
       stage, stageName: STAGES[stage].name, today, hue, blocksToday, running: st.running, rpm: st.rpm,
       crown: rounds >= 10, scarf: sprints >= 1, star: (mem.blocksSeen || 0) >= 1,
@@ -140,7 +140,7 @@
     const bar = t.next ? (t.today - STAGES[t.stage].at) / (t.next.at - STAGES[t.stage].at) : 1;
     el.querySelector('[data-e="bar"]').style.width = `${Math.min(100, bar * 100)}%`;
     el.querySelector('[data-e="relics"]').innerHTML = [
-      ['👑 Crown', t.crown, 'watch 10 full rounds'], ['🧣 Scarf', t.scarf, 'witness a sprint round (≥ 400 m)'], ['⭐ Block star', t.star, 'witness a Squeek block being mined'],
+      ['👑 Crown', t.crown, '10 settled rounds'], ['🧣 Scarf', t.scarf, 'a sprint round (≥ 400 m) on record'], ['⭐ Block star', t.star, 'witness a Squeek block being mined'],
     ].map(([n, ok, how]) => `<li><span>${n}</span><span class="small muted">${how}</span><span class="pill ${ok ? 'ok' : ''}">${ok ? 'earned' : 'locked'}</span></li>`).join('');
     el.querySelector('[data-e="timeline"]').innerHTML = (mem.timeline || []).slice().reverse().map(x => `<li><span class="pill hot">${x.stage}</span><span class="small">${new Date(x.at).toLocaleString()}</span><span></span></li>`).join('') || '<li class="empty">Evolution starts now.</li>';
     el.querySelector('[data-e="meta"]').textContent = JSON.stringify(metadata(t), null, 2);
