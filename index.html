@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Squeek Orbit</title>
+  <meta name="description" content="Eight planets orbiting the WHEELY9000: games, raids, AI, stream overlays, holder tools, Squeek showcases, SqueekFi and evolving art, all powered by Squeekchain's real hamster.">
+  <meta name="author" content="KADAFERHIDUP">
+  <meta name="theme-color" content="#0a0912">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='12' fill='%23f2b33d'/%3E%3Ccircle cx='32' cy='32' r='24' fill='none' stroke='%23f2b33d' stroke-width='4'/%3E%3Ccircle cx='54' cy='20' r='5' fill='%234f8cff'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=IBM+Plex+Mono:wght@400;600&family=Rubik:wght@400;500;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="sky" aria-hidden="true"></div>
+
+  <!-- ===================== HUB ===================== -->
+  <main id="hub" class="hub">
+    <canvas id="hub-canvas" class="hub-canvas" aria-label="Solar system of eight Squeekchain planets around the WHEELY9000"></canvas>
+    <div id="labels" class="labels"></div>
+
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Squeek Orbit home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span><b>Squeek Orbit</b><small>by KADAFERHIDUP</small></span>
+      </a>
+      <div class="chips">
+        <span class="chip feed" id="feed" data-state="connecting"><i></i><span id="feed-label">Connecting…</span></span>
+        <span class="chip"><span class="k">Wheel</span><span id="chip-wheel">–</span></span>
+        <span class="chip"><span class="k">Round</span><span id="chip-round">–</span><span class="clock" id="chip-clock">--:--</span></span>
+        <span class="chip hide-sm"><span class="k">Block</span><span id="chip-block">–</span></span>
+      </div>
+    </header>
+
+    <section class="intro" id="intro">
+      <p class="eyebrow">8 planets · 1 real hamster</p>
+      <h1>Squeek Orbit</h1>
+      <p class="lead">Every planet circles the WHEELY9000. When Squeektoshi runs, the whole system speeds up. Pick a planet to play, predict, stream, hold or evolve.</p>
+      <ol class="planet-list" id="planet-list"></ol>
+    </section>
+
+    <aside class="ticker" aria-label="Latest Squeekchain activity">
+      <span class="ticker-k">On-chain</span>
+      <div class="ticker-track"><div class="ticker-items" id="ticker">Waiting for Squeekchain events…</div></div>
+    </aside>
+  </main>
+
+  <!-- ===================== PLANET SCREEN ===================== -->
+  <section id="planet" class="planet" hidden aria-live="polite">
+    <header class="planet-head">
+      <button type="button" class="back" id="back" aria-label="Back to the solar system">← Orbit</button>
+      <span class="planet-glyph" id="planet-glyph" aria-hidden="true"></span>
+      <div class="planet-title">
+        <small id="planet-cat">Category</small>
+        <h2 id="planet-name">Planet</h2>
+      </div>
+      <div class="planet-live">
+        <span class="chip"><span class="k">Wheel</span><span id="p-wheel">–</span></span>
+        <span class="chip hide-sm"><span class="k">Round</span><span id="p-round">–</span><span class="clock" id="p-clock">--:--</span></span>
+      </div>
+    </header>
+    <div class="planet-body" id="planet-body"></div>
+  </section>
+
+  <!-- ===================== STREAM OVERLAY (OBS browser source) ===================== -->
+  <section id="overlay" class="overlay-mode" hidden></section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/engine.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/hub.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/planets/rally.js"></script>
+  <script src="js/planets/raid.js"></script>
+  <script src="js/planets/oracle.js"></script>
+  <script src="js/planets/stream.js"></script>
+  <script src="js/planets/vault.js"></script>
+  <script src="js/planets/showcase.js"></script>
+  <script src="js/planets/fi.js"></script>
+  <script src="js/planets/evolve.js"></script>
+  <script>SR.App.boot();</script>
+</body>
+</html>
