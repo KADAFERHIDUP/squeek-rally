@@ -95,3 +95,5 @@ node tests/worker.test.mjs    # the shared server on Node's built-in SQLite with
 ## Credits
 
 Built by **KADAFERHIDUP**. Not affiliated with the Squeekchain team. Play money in Fintopia has no value.
+
+squeekchain-project: 558d041b-ebb0-4b98-a795-df1db5bf35a4
