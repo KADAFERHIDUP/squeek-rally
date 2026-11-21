@@ -68,7 +68,7 @@
       const { demo, squeek } = await SR.Data.fetchSqueek(Number(id));
       currentSq = squeek;
       renderCard();
-      if (demo) box.insertAdjacentHTML('afterbegin', '<p class="note">Demo data: the Squeekchain API could not be reached from here.</p>');
+      if (demo) box.insertAdjacentHTML('afterbegin', '<p class="note">Archive mode: Squeekchain has shut down, so these Squeeks are sample data.</p>');
     } catch (err) {
       currentSq = null;
       box.innerHTML = `<p class="empty">Squeek #${ctx.esc(id)} could not be loaded (${ctx.esc(err.message)}). It may not be minted yet.</p>`;

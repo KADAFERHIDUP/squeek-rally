@@ -60,7 +60,7 @@
   // ---------------------------------------------------------------- gates (why an action is not available)
   function blocked(kind) {
     const e = econ(), c = contracts();
-    if (SR.Data.state.mode === 'demo') return 'Demo data is showing because the Squeekchain API is unreachable. Actions are off.';
+    if (SR.Data.state.mode === 'demo') return 'Archive mode: Squeekchain has shut down, so this shows sample data. Wallet actions are off.';
     if (!c.collection || !c.staking) return 'Waiting for contract addresses from /economy/state…';
     if (c.consistent === false) return 'The contract addresses from /economy/state do not agree with each other, so Vaultar will not prepare transactions.';
     if (!me()) return 'Connect your wallet to prepare this.';
@@ -237,7 +237,7 @@
     const mergeWhy = blocked('merge'), depWhy = blocked('deposit'), claimWhy = blocked('claim');
     const held = sq.filter(s => custody(s) === 'wallet');
     out.innerHTML = `
-      ${demo ? '<p class="note">Demo data: the Squeekchain API could not be reached from here.</p>' : ''}
+      ${demo ? '<p class="note">Archive mode: Squeekchain has shut down, so these Squeeks are sample data.</p>' : ''}
       <div class="grid4">
         <div class="stat"><span class="k">Squeeks</span><span class="v">${sq.length}</span><span class="s">${sq.filter(s => custody(s) === 'staked').length} in staking</span></div>
         <div class="stat"><span class="k">NFT power</span><span class="v">${totalPower.toLocaleString('en-US')}</span><span class="s">1,000 × 2.2^(level − 1) each</span></div>
