@@ -426,8 +426,25 @@ window.SR = window.SR || {};
       { type: 'claim', at: Date.now() - 420000, tx: null, round: null },
     ];
     emit('economy', state.economy); emit('stats', state.stats); emit('events', state.events);
+    seedDemoHistory();
     setInterval(demoTick, 1000);
     demoTick();
+  }
+  /** Simulated results for the last 12 hours, so predictions, the saga and charts have history on first visit.
+   *  Seeded from the round number, so every visitor sees the same past. Mostly naps, some jogs, a few sprints. */
+  function seedDemoHistory() {
+    const now = roundAt(Date.now() / 1000), list = [];
+    for (let r = now - 72; r < now; r++) {
+      if (state.chain.rounds[r]) continue;
+      const x = Math.abs(Math.sin(r * 12.9898) * 43758.5453) % 1;
+      const work = x < 0.4 ? 0 : x < 0.85 ? Math.round(20 + (x - 0.4) * 700) : Math.round(400 + (x - 0.85) * 7000);
+      list.push({ round: r, work, distanceM: Math.round(work * METRES_PER_WORK), complete: true, source: 'chain', tx: null, at: roundStart(r + 1) * 1000 });
+    }
+    if (list.length) {
+      state.chain.through = now - 1; state.chain.oldest = state.chain.oldest ?? now - 72; state.chain.lastOk = Date.now();
+      ingest(list);
+      emit('settlements', state.chain);
+    }
   }
   function ingestDemo(result) {
     const r = { ...result, complete: true, source: 'chain', tx: null, at: Date.now(), work: result.work, distanceM: result.distanceM };
@@ -453,7 +470,11 @@ window.SR = window.SR || {};
     }, nowSec);
   }
 
+  const ARCHIVE = Boolean((window.SQUEEK_ORBIT_CONFIG || {}).archive);
+
   function start() {
+    // Squeekchain has shut down: run the simulated wheel straight away instead of waiting for the API to time out.
+    if (ARCHIVE) { state.archive = true; startDemo(); return; }
     pollStatus().then(() => { pollEconomy(); pollEvents(); pollStats(); pollSettlements().then(seedHistory); });
     setInterval(pollStatus, 4000);
     setInterval(pollSettlements, 45000);

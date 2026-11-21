@@ -48,7 +48,7 @@
 
   function sagaLine(r) {
     const s = (r.round * 2654435761) >>> 0;
-    const place = PLACES[s % PLACES.length], foe = FOES[(s >> 3) % FOES.length], n = 1 + (s % 5);
+    const place = PLACES[s % PLACES.length], foe = FOES[(s >>> 3) % FOES.length], n = 1 + (s % 5);
     const d = ctx.fmtM(r.distanceM);
     const forged = r.blocks ? ` ${r.blocks === 1 ? `Squeek block #${r.lastBlock} was` : `${r.blocks} Squeek blocks (to #${r.lastBlock}) were`} forged from the work.` : '';
     return line() + forged;

@@ -4,6 +4,15 @@
 
 Live: **https://orbit.kadaferhidup.my.id**
 
+> **Archived project.** Squeekchain, the hamster-powered chain this was built for, has shut down and its API
+> (`api.squeekchain.com`) no longer answers. The site now runs in **archive mode**: the wheel, rounds, blocks and
+> settlements are simulated in the browser (the same simulated past for every visitor), so all eight planets still
+> work and nothing is fetched from Squeekchain. Leaderboard, raid cheers and polls stay on each visitor's device.
+> It is hosted as a static site on GitHub Pages with a CNAME to the `orbit.kadaferhidup.my.id` subdomain, no server.
+> To point it at a live API again, set `archive: false` in `js/config.js`.
+>
+> The sections below describe how it worked while Squeekchain was live.
+
 Squeektoshi runs on the WHEELY9000 and mines Squeek blocks on Squeekchain. Squeek Orbit is a single site shaped like a solar system: the sun is the wheel, spinning at Squeektoshi's live rpm, and each of the eight planets is one kind of Squeekchain build with its own mode. When the hamster runs, the whole system speeds up.
 
 | # | Planet | Category | What you can do |

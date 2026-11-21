@@ -80,7 +80,7 @@ window.SR = window.SR || {};
   function setFeed(mode) {
     const f = $('feed');
     f.dataset.state = mode;
-    $('feed-label').textContent = mode === 'live' ? 'Live · Sepolia' : mode === 'demo' ? 'Demo data · API unreachable' : 'Connecting…';
+    $('feed-label').textContent = mode === 'live' ? 'Live · Sepolia' : mode === 'demo' ? (SR.Data.state.archive ? 'Archive · simulated wheel' : 'Demo data · API unreachable') : 'Connecting…';
   }
   function renderTicker(events) {
     const el = $('ticker');

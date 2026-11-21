@@ -68,7 +68,6 @@ button { cursor: pointer; }
 .feed i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .feed[data-state="live"] i { background: var(--ok); box-shadow: 0 0 0 4px #67d68f22; animation: pulse 1.6s infinite; }
 .feed[data-state="demo"] { color: var(--gold); border-color: #f2b33d66; }
-.feed[data-state="demo"] i { background: var(--gold); }
 @keyframes pulse { 50% { box-shadow: 0 0 0 7px #67d68f00; } }
 
 .intro { position: absolute; left: 18px; bottom: 60px; width: min(380px, calc(100% - 36px)); display: grid; gap: 10px; pointer-events: none; padding: 16px; border-radius: 18px; background: linear-gradient(160deg, #0a0912e6, #0a0912b8); border: 1px solid #ffffff14; backdrop-filter: blur(8px); z-index: 3; }
@@ -286,3 +285,8 @@ body.is-vote { background: var(--bg); }
 .board-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 body.is-overlay.is-vote .toast { display: block; }
 body.is-vote .overlay-mode { overflow: auto; }
+
+/* ---------------------------------------------------------------- archive mode */
+.archive-note { margin: 10px 0 14px; padding: 9px 12px; max-width: 46ch; border: 1px solid #f2b33d66; border-left: 3px solid var(--gold);
+  background: #f2b33d14; border-radius: 6px; font-size: 13px; color: var(--ink); }
+.feed[data-state="demo"] i { background: var(--gold); }
