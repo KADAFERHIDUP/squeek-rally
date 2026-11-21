@@ -31,19 +31,19 @@ Check it: `curl https://squeek-orbit.<you>.workers.dev/v1/health`
 | GET | `/v1/health` | | round history size, current round, raid day |
 | GET | `/v1/rounds` | `?ids=1,2,3` or `?from=&to=&limit=` | on-chain results recorded from Squeekchain `/settlements`; `work` is `null` when a settlement spans several rounds with work |
 | GET | `/v1/leaderboard` | `?period=all\|week&limit=20` | best run per player |
-| POST | `/v1/runs` | `{client, name, score, distanceM, seeds, coins, gems, durationS, multiplier, skin}` | validated against the game's top speed and pickup values; 1 run / 10 s per player, 40 / hour per IP |
+| POST | `/v1/runs` | `{client, name, score, distanceM, seeds, coins, gems, durationS, multiplier, skin}` | validated against the game's top speed and pickup values; 1 run / 10 s per player, 20 / hour per IP |
 | GET | `/v1/raid` | `?client=` | today's cheers (days run 12:00 to 12:00 UTC) |
-| POST | `/v1/raid/cheer` | `{client, name}` | refused unless the wheel is turning right now (the server asks Squeekchain itself); 1 per 20 s per player |
+| POST | `/v1/raid/cheer` | `{client, name}` | refused unless the wheel is turning right now (the server asks Squeekchain itself); 1 per 20 s per player and 3 per 20 s per IP |
 | GET | `/v1/poll` | `?client=` | open poll for the next round, and the last settled poll |
-| POST | `/v1/poll/vote` | `{client, round, choice: "run"\|"sleep"}` | only the next round is open; a vote can be changed until it starts |
+| POST | `/v1/poll/vote` | `{client, round, choice: "run"\|"sleep"}` | only the next round is open; a vote can be changed until it starts; at most 3 new voters per IP per round |
 
 `client` is a random id the browser makes once; `name` is the player's chosen nickname (3–20 letters, numbers, spaces, `_ . -`). Nothing else about a player is stored.
 
-A cron runs every 5 minutes to copy `/settlements` into D1. The round history also refreshes itself on demand if the cron has not run for 5 minutes.
+A cron runs every 5 minutes to copy `/settlements` into D1 and to delete expired rate-limit rows. The round history also refreshes itself on demand if the cron has not run for 5 minutes (at most once a minute per Worker instance, so a burst of requests cannot hammer the Squeekchain API).
 
 ## Honest limits
 
-Rallyon runs in the browser, so the server can only check that a run is physically possible for the game (speed, pickups, block crystals per minute). It cannot prove a run was played by hand. Cheers and votes are rate-limited per player and per IP, but one person with many browsers can still vote more than once.
+Rallyon runs in the browser, so the server can only check that a run is physically possible for the game (speed, pickups, block crystals per minute). It cannot prove a run was played by hand. Client ids are random strings the browser makes, so the limits that matter are per IP: inventing new ids does not give extra votes, cheers, or runs. Someone with many IP addresses can still vote more than once.
 
 ## Test locally
 

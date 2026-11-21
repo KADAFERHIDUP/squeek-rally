@@ -80,6 +80,24 @@ db.prepare('INSERT INTO votes VALUES (?, ?, ?, ?)').run(cur - 1, B, 'sleep', Dat
 db.prepare('INSERT INTO votes VALUES (?, ?, ?, ?)').run(cur - 1, 'cccccccccccccccccccc', 'run', Date.now());
 r = await call('GET', '/v1/poll'); assert.equal(r.j.last.round, cur - 1); assert.equal(r.j.last.actual, 'run'); assert.equal(r.j.last.crowdRight, true);
 console.log('poll', JSON.stringify(r.j));
+// one IP inventing client ids cannot stuff the poll or the raid
+{
+  const ids = ['d', 'e', 'f', 'g', 'h'].map(c => c.repeat(20));
+  const st = [];
+  for (const id of ids) st.push((await call('POST', '/v1/poll/vote', { client: id, round: open, choice: 'run' }, undefined, '9.9.9.9')).status);
+  assert.deepEqual(st, [200, 200, 200, 429, 429], 'only 3 new voters per IP per round: ' + st);
+  r = await call('POST', '/v1/poll/vote', { client: ids[0], round: open, choice: 'sleep' }, undefined, '9.9.9.9');
+  assert.equal(r.status, 200, 'changing your own vote still works');
+  spinning = true; db.exec('UPDATE wheel SET fetched_at = 0');
+  const cs = [];
+  for (const id of ids) cs.push((await call('POST', '/v1/raid/cheer', { client: id, name: 'Spam-' + id[0] }, undefined, '8.8.8.8')).status);
+  assert.deepEqual(cs, [200, 200, 200, 429, 429], 'cheer burst per IP: ' + cs);
+  console.log('stuffing blocked', st.join(','), cs.join(','));
+}
+// expired rate-limit rows are swept by the cron
+db.prepare('INSERT INTO hits (key, win, count) VALUES (?, ?, ?)').run('run:zzzzzzzzzzzzzzzzzzzz', 5, 1);
+{ let pr; await W.scheduled({}, env, { waitUntil: p => { pr = p; } }); await pr; }
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM hits WHERE key = 'run:zzzzzzzzzzzzzzzzzzzz'").get().n, 0);
 r = await call('GET', '/v1/nope'); assert.equal(r.status, 404);
 r = await call('OPTIONS', '/v1/runs'); assert.equal(r.status, 204);
 console.log('ALL WORKER TESTS PASSED');
