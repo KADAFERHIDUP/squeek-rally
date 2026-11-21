@@ -71,6 +71,15 @@ async function limit(env, key, max, windowSec) {
 }
 const ipOf = req => req.headers.get('CF-Connecting-IP') || 'unknown';
 
+/** Window size of every rate-limit key prefix, so the cron can drop rows whose window has passed. */
+const LIMIT_WINDOWS = { 'run:': 10, 'run-ip:': 3600, 'cheer-ip:': 3600, 'cheer-burst:': 20, 'vote-ip:': 600, 'vote-new:': 86400 };
+async function sweepHits(env) {
+  const nowSec = Date.now() / 1000;
+  const stmts = Object.entries(LIMIT_WINDOWS).map(([prefix, w]) =>
+    env.DB.prepare('DELETE FROM hits WHERE key LIKE ?1 AND win < ?2').bind(prefix + '%', Math.floor(nowSec / w) - 1));
+  await env.DB.batch(stmts);
+}
+
 // ---------------------------------------------------------------- Squeekchain reads
 async function squeek(path) {
   const r = await fetch(SQUEEK + path, { headers: { Accept: 'application/json' }, cf: { cacheTtl: 5 } });
@@ -175,7 +184,8 @@ async function submitRun(req, env) {
   const bad = plausible(run);
   if (bad) throw new HttpError(422, `run rejected: ${bad}`);
   await limit(env, `run:${run.client}`, 1, 10);
-  await limit(env, `run-ip:${ipOf(req)}`, 40, 3600);
+  // a client id is just a random string the browser picks, so the real ceiling is per IP
+  await limit(env, `run-ip:${ipOf(req)}`, 20, 3600);
   await env.DB.prepare('INSERT INTO runs (client, name, score, distance, seeds, coins, gems, duration, multiplier, skin, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)')
     .bind(run.client, run.name, run.score, run.distanceM, run.seeds, run.coins, run.gems, run.durationS, run.multiplier, run.skin, Date.now()).run();
   const rank = await env.DB.prepare('SELECT COUNT(*) + 1 AS rank FROM (SELECT client, MAX(score) AS best FROM runs GROUP BY client) WHERE best > ?1').bind(run.score).first();
@@ -200,6 +210,8 @@ async function cheer(req, env) {
   const day = dayKey(), now = Date.now();
   const row = await env.DB.prepare('SELECT last_at FROM cheers WHERE day = ?1 AND client = ?2').bind(day, id).first();
   if (row && now - row.last_at < CHEER_COOLDOWN_MS) throw new HttpError(429, `cheer again in ${Math.ceil((row.last_at + CHEER_COOLDOWN_MS - now) / 1000)} s`);
+  // new client ids are free to make, so one IP also gets only a few cheers per cooldown
+  await limit(env, `cheer-burst:${ipOf(req)}`, 3, CHEER_COOLDOWN_MS / 1000);
   await env.DB.prepare('INSERT INTO cheers (day, client, name, count, last_at) VALUES (?1, ?2, ?3, 1, ?4) ON CONFLICT(day, client) DO UPDATE SET count = count + 1, last_at = ?4, name = ?3')
     .bind(day, id, name, now).run();
   return raid(env, new URL(`https://x/?client=${id}`));
@@ -229,10 +241,16 @@ async function vote(req, env) {
   if (Number(b.round) !== open) throw new HttpError(409, `voting is open for round #${open} only`);
   if (b.choice !== 'run' && b.choice !== 'sleep') throw new HttpError(422, 'choice must be "run" or "sleep"');
   await limit(env, `vote-ip:${ipOf(req)}`, 60, 600);
+  // changing your own vote is free; a new voter from the same IP counts against a small per-round cap,
+  // so one person cannot stuff the poll by inventing client ids
+  const had = await env.DB.prepare('SELECT 1 AS x FROM votes WHERE round = ?1 AND client = ?2').bind(open, id).first();
+  if (!had) await limit(env, `vote-new:${ipOf(req)}:${open}`, 3, 86400);
   await env.DB.prepare('INSERT INTO votes (round, client, choice, at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(round, client) DO UPDATE SET choice = ?3, at = ?4')
     .bind(open, id, b.choice, Date.now()).run();
   return poll(env, new URL(`https://x/?client=${id}`));
 }
+
+let lastRefresh = 0;
 
 const ROUTES = {
   'GET /v1/health': (req, env) => health(env),
@@ -255,9 +273,12 @@ export default {
     if (req.method === 'POST' && !headers['Access-Control-Allow-Origin'] && req.headers.get('Origin')) return json({ error: 'origin not allowed' }, 403, headers);
     try {
       // keep round history fresh even if the cron has not fired yet
-      if (url.pathname.startsWith('/v1/rounds') || url.pathname.startsWith('/v1/poll')) {
+      if ((url.pathname.startsWith('/v1/rounds') || url.pathname.startsWith('/v1/poll')) && Date.now() - lastRefresh > 60000) {
         const last = await env.DB.prepare('SELECT MAX(recorded_at) AS t FROM rounds').first();
-        if (!last || !last.t || Date.now() - last.t > 300000) ctx.waitUntil(record(env).catch(() => 0));
+        if (!last || !last.t || Date.now() - last.t > 300000) {
+          lastRefresh = Date.now(); // one refresh per isolate per minute, however many requests arrive
+          ctx.waitUntil(record(env).catch(() => 0));
+        }
       }
       return json(await route(req, env, url), 200, headers);
     } catch (e) {
@@ -265,7 +286,7 @@ export default {
       return json({ error: status === 500 ? 'server error' : e.message }, status, headers);
     }
   },
-  async scheduled(event, env, ctx) { ctx.waitUntil(record(env)); },
+  async scheduled(event, env, ctx) { ctx.waitUntil(Promise.all([record(env), sweepHits(env)])); },
 };
 
-export { plausible, roundAt, dayKey };
+export { plausible, roundAt, dayKey, sweepHits };
